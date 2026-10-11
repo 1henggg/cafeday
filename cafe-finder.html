@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台北咖啡廳｜找位子</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  :root {
+    --ink: #1d2742;
+    --paper: #f5f6f8;
+    --surface: #ffffff;
+    --line: #d9dce3;
+    --muted: #586178;
+    --mark: #f4d93a;
+    --mark-soft: #fff7cc;
+    --ok: #17695d;
+    --warn: #8f5500;
+    --bad: #a3322b;
+    --me: #2f6bff;
+    --focus: #2f6bff;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+  button { font: inherit; color: inherit; }
+
+  .app {
+    height: 100vh;
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: minmax(340px, 420px) 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "top map" "list map";
+  }
+
+  /* ---------- 上方：標題與篩選 ---------- */
+  .top {
+    grid-area: top;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 18px 20px 14px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+  }
+  .lede { margin: 4px 0 14px; color: var(--muted); font-size: 14px; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; border: 0; margin: 0; padding: 0; }
+  .filters legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .chip { position: relative; display: inline-block; }
+  .chip input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    margin: 0; opacity: 0; cursor: pointer;
+  }
+  .chip span {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: 38px; padding: 6px 14px;
+    border: 1.5px solid var(--ink); border-radius: 999px;
+    background: var(--surface);
+    font-size: 14px; font-weight: 500;
+    user-select: none;
+  }
+  .chip input:checked + span { background: var(--mark); font-weight: 700; }
+  .chip input:checked + span::before { content: "✓"; font-weight: 900; }
+  .chip input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  .status-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-top: 12px; font-size: 13px; color: var(--muted);
+  }
+  .status-row p { margin: 0; }
+  .btn-link {
+    flex: none; background: none; border: 0; padding: 4px 2px;
+    color: var(--ink); font-size: 13px; font-weight: 700;
+    text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+  }
+  .btn-link:focus-visible, .nav:focus-visible, .card-main:focus-visible {
+    outline: 3px solid var(--focus); outline-offset: 2px;
+  }
+
+  /* ---------- 列表 ---------- */
+  .list-wrap { grid-area: list; overflow-y: auto; min-height: 0; padding: 0 16px 24px; }
+  .result-bar {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 4px 10px; background: var(--paper);
+    font-size: 14px; font-weight: 700;
+  }
+  .result-bar .total { color: var(--muted); font-weight: 400; }
+  .notice {
+    margin: 0 0 10px; padding: 8px 12px; border-radius: 6px;
+    background: var(--mark-soft); border: 1px solid #e6cf4a;
+    font-size: 13px;
+  }
+  ul.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .card.selected { border-color: var(--ink); border-left-color: var(--ink); background: var(--mark-soft); }
+  .card-main {
+    display: block; width: 100%; text-align: left;
+    background: none; border: 0; padding: 12px 14px 8px; cursor: pointer;
+  }
+  .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .name { font-size: 16px; font-weight: 700; }
+  .dist { flex: none; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .meta { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag {
+    padding: 1px 8px; border-radius: 4px; font-size: 12px;
+    background: var(--paper); border: 1px solid var(--line);
+  }
+  .tag.hit { background: var(--mark); border-color: var(--ink); font-weight: 700; }
+  .seat {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;
+    font-size: 13px; font-weight: 700;
+  }
+  .seat .badge { padding: 1px 8px; border-radius: 4px; color: #fff; }
+  .seat .many { background: var(--ok); }
+  .seat .some { background: var(--warn); }
+  .seat .full { background: var(--bad); }
+  .seat small { font-weight: 400; color: var(--muted); }
+  .nav {
+    display: inline-block; margin: 0 14px 12px; font-size: 13px; font-weight: 700;
+    color: var(--ink); text-underline-offset: 3px;
+  }
+
+  .empty { padding: 28px 8px; text-align: center; color: var(--muted); }
+  .empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+  .empty .btn-link { margin-top: 8px; }
+  .foot { margin: 16px 4px 0; font-size: 12px; color: var(--muted); }
+
+  /* ---------- 地圖 ---------- */
+  #map { grid-area: map; min-height: 0; background: #e7e9ee; }
+  .map-fail {
+    height: 100%; display: grid; place-items: center; padding: 24px;
+    text-align: center; color: var(--muted); font-size: 14px;
+  }
+  .pin {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--ink); color: #fff;
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  }
+  .pin.selected { background: var(--mark); color: var(--ink); border-color: var(--ink); transform: scale(1.2); }
+  .me {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--me); border: 3px solid #fff;
+    box-shadow: 0 0 0 7px rgba(47, 107, 255, .22);
+  }
+  .leaflet-popup-content { font-family: inherit; color: var(--ink); margin: 12px 14px; }
+  .pop-name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+  .pop-line { font-size: 13px; color: var(--muted); }
+
+  /* ---------- 手機 ---------- */
+  @media (max-width: 800px) {
+    .app {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto minmax(200px, 36vh) minmax(0, 1fr);
+      grid-template-areas: "top" "map" "list";
+    }
+    .top { padding: 12px 14px 10px; }
+    h1 { font-size: 20px; }
+    .lede { margin-bottom: 10px; }
+    .list-wrap { padding: 0 12px 20px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .pin { transition: transform .15s; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>台北咖啡廳｜找位子</h1>
+    <p class="lede">今天要讀書還是做報告？勾選條件，找出離你最近的咖啡廳。</p>
+
+    <fieldset class="filters" id="filters">
+      <legend>篩選條件</legend>
+    </fieldset>
+
+    <div class="status-row">
+      <p id="locStatus" aria-live="polite">定位中…</p>
+      <button class="btn-link" id="relocate" type="button">重新定位</button>
+    </div>
+  </header>
+
+  <div class="list-wrap" id="listWrap">
+    <div class="result-bar">
+      <span id="count" aria-live="polite"></span>
+      <button class="btn-link" id="clear" type="button" hidden>清除條件</button>
+    </div>
+    <p class="notice" id="sampleNotice" hidden>目前顯示的是範例資料，店名與地址皆為虛構。</p>
+    <ul class="cards" id="cards"></ul>
+    <p class="foot">咖啡廳條件來自社群回報，出發前建議再確認營業時間與現場狀況。你的位置只在這個瀏覽器中使用，不會上傳。</p>
+  </div>
+
+  <div id="map" aria-label="咖啡廳地圖"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* =====================================================================
+   1. 資料
+   ---------------------------------------------------------------------
+   IS_SAMPLE = true 時使用下方範例資料（虛構）。
+   換成真實資料：把 Cafe Nomad 台北市 API 的 JSON 陣列貼進 RAW_CAFES，
+   並把 IS_SAMPLE 改成 false。欄位名稱沿用 Cafe Nomad，不需要轉換。
+   ===================================================================== */
+const IS_SAMPLE = true;
+
+const RAW_CAFES = [
+  { id: "s01", name: "範例咖啡 公館店", address: "台北市中正區 範例路 1 號", latitude: "25.0147", longitude: "121.5342", mrt: "公館", wifi: 5, seat: 4, quiet: 3, socket: "yes", limited_time: "no", open_time: "每日 09:00–22:00" },
+  { id: "s02", name: "範例書房 台電店", address: "台北市大安區 範例街 2 號", latitude: "25.0206", longitude: "121.5283", mrt: "台電大樓", wifi: 4, seat: 5, quiet: 5, socket: "yes", limited_time: "no", open_time: "週一至週六 10:00–21:00" },
+  { id: "s03", name: "範例烘焙 師大店", address: "台北市大安區 範例巷 3 號", latitude: "25.0268", longitude: "121.5285", mrt: "古亭", wifi: 3, seat: 3, quiet: 2, socket: "maybe", limited_time: "yes", open_time: "每日 11:00–23:00" },
+  { id: "s04", name: "範例咖啡 忠孝復興店", address: "台北市大安區 範例路 4 號", latitude: "25.0417", longitude: "121.5436", mrt: "忠孝復興", wifi: 4, seat: 4, quiet: 3, socket: "yes", limited_time: "maybe", open_time: "每日 08:30–20:00" },
+  { id: "s05", name: "範例自習室 大安店", address: "台北市大安區 範例街 5 號", latitude: "25.0330", longitude: "121.5436", mrt: "大安", wifi: 5, seat: 5, quiet: 5, socket: "yes", limited_time: "no", open_time: "每日 09:00–23:00" },
+  { id: "s06", name: "範例咖啡 東區店", address: "台北市大安區 範例路 6 號", latitude: "25.0414", longitude: "121.5512", mrt: "國父紀念館", wifi: 3, seat: 2, quiet: 2, socket: "no", limited_time: "yes", open_time: "每日 12:00–22:00" },
+  { id: "s07", name: "範例咖啡 中山店", address: "台北市中山區 範例巷 7 號", latitude: "25.0527", longitude: "121.5200", mrt: "中山", wifi: 4, seat: 3, quiet: 4, socket: "yes", limited_time: "yes", open_time: "每日 10:00–21:00" },
+  { id: "s08", name: "範例咖啡 車站店", address: "台北市中正區 範例路 8 號", latitude: "25.0467", longitude: "121.5170", mrt: "台北車站", wifi: 5, seat: 5, quiet: 3, socket: "yes", limited_time: "maybe", open_time: "每日 07:30–22:00" },
+  { id: "s09", name: "範例咖啡 西門店", address: "台北市萬華區 範例街 9 號", latitude: "25.0422", longitude: "121.5082", mrt: "西門", wifi: 3, seat: 3, quiet: 3, socket: "maybe", limited_time: "yes", open_time: "每日 11:00–22:00" },
+  { id: "s10", name: "範例咖啡 信義店", address: "台北市信義區 範例路 10 號", latitude: "25.0334", longitude: "121.5660", mrt: "市政府", wifi: 4, seat: 4, quiet: 4, socket: "yes", limited_time: "no", open_time: "每日 09:00–21:00" },
+  { id: "s11", name: "範例咖啡 士林店", address: "台北市士林區 範例巷 11 號", latitude: "25.0937", longitude: "121.5258", mrt: "士林", wifi: 3, seat: 4, quiet: 4, socket: "yes", limited_time: "no", open_time: "週二至週日 10:00–20:00" },
+  { id: "s12", name: "範例咖啡 南港店", address: "台北市南港區 範例路 12 號", latitude: "25.0522", longitude: "121.6062", mrt: "南港展覽館", wifi: 4, seat: 5, quiet: 3, socket: "yes", limited_time: "maybe", open_time: "每日 09:00–21:30" },
+  { id: "s13", name: "範例咖啡 政大店", address: "台北市文山區 範例街 13 號", latitude: "24.9870", longitude: "121.5750", mrt: "", wifi: 4, seat: 4, quiet: 4, socket: "yes", limited_time: "no", open_time: "每日 10:00–22:00" },
+  { id: "s14", name: "範例咖啡 萬隆店", address: "台北市文山區 範例巷 14 號", latitude: "24.9908", longitude: "121.5412", mrt: "萬隆", wifi: 3, seat: 3, quiet: 5, socket: "yes", limited_time: "no", open_time: "每日 09:30–19:00" },
+  { id: "s15", name: "範例咖啡 松江南京店", address: "台北市中山區 範例路 15 號", latitude: "25.0521", longitude: "121.5329", mrt: "松江南京", wifi: 5, seat: 4, quiet: 2, socket: "yes", limited_time: "yes", open_time: "每日 11:00–23:00" }
+];
+
+/* 座位狀態（預留）。之後接上後端或業者回報時，改成從伺服器取得即可。
+   level: many（空位多）/ some（尚有位子）/ full（客滿）
+   free:  剩餘座位數，沒有精確數字時填 null
+   updatedAt: 毫秒時間戳 */
+const SEAT_STATUS = IS_SAMPLE ? {
+  s01: { level: "many", free: 12, updatedAt: Date.now() - 4 * 60000 },
+  s05: { level: "some", free: null, updatedAt: Date.now() - 18 * 60000 },
+  s08: { level: "full", free: 0, updatedAt: Date.now() - 2 * 60000 }
+} : {};
+
+function normalize(r) {
+  return {
+    id: String(r.id),
+    name: r.name || "（未命名）",
+    address: r.address || "",
+    lat: parseFloat(r.latitude),
+    lng: parseFloat(r.longitude),
+    wifi: Number(r.wifi) || 0,
+    seat: Number(r.seat) || 0,
+    quiet: Number(r.quiet) || 0,
+    socket: r.socket || "",
+    limited: r.limited_time || "",
+    mrt: r.mrt || "",
+    openTime: r.open_time || ""
+  };
+}
+const CAFES = RAW_CAFES.map(normalize).filter(c => isFinite(c.lat) && isFinite(c.lng));
+
+/* =====================================================================
+   2. 篩選條件（要增減條件，改這裡就好）
+   「不確定」的資料不會被當成符合，避免讓人白跑一趟。
+   ===================================================================== */
+const FILTERS = [
+  { key: "unlimited", label: "不限時", test: c => c.limited === "no" },
+  { key: "socket",    label: "有插座", test: c => c.socket === "yes" },
+  { key: "quiet",     label: "安靜",   test: c => c.quiet >= 4 },
+  { key: "wifi",      label: "Wifi 穩", test: c => c.wifi >= 4 },
+  { key: "seat",      label: "座位多", test: c => c.seat >= 4 }
+];
+
+/* =====================================================================
+   3. 狀態與工具
+   ===================================================================== */
+const DEFAULT_POS = { lat: 25.0478, lng: 121.5170, name: "台北車站" };
+const state = {
+  user: { lat: DEFAULT_POS.lat, lng: DEFAULT_POS.lng },
+  active: new Set(),
+  selected: null,
+  visible: []
+};
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = id => document.getElementById(id);
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+function haversine(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function fmtDist(m) {
+  return m < 1000 ? `${Math.round(m / 10) * 10} 公尺` : `${(m / 1000).toFixed(1)} 公里`;
+}
+function ago(ts) {
+  const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+  if (m < 1) return "剛剛更新";
+  if (m < 60) return `${m} 分鐘前更新`;
+  return `${Math.round(m / 60)} 小時前更新`;
+}
+const SEAT_TEXT = { many: "空位多", some: "尚有位子", full: "客滿" };
+function seatHtml(c) {
+  const s = SEAT_STATUS[c.id];
+  if (!s) return "";
+  const free = s.free != null ? `剩 ${s.free} 位` : "";
+  return `<span class="seat"><span class="badge ${s.level}">${SEAT_TEXT[s.level] || ""}</span>${free ? `<span>${free}</span>` : ""}<small>${ago(s.updatedAt)}</small></span>`;
+}
+function navUrl(c) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}`;
+}
+
+/* =====================================================================
+   4. 地圖
+   ===================================================================== */
+const hasMap = typeof L !== "undefined";
+let map, markerLayer, userMarker;
+const markers = new Map();
+const CUP = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h2a2.5 2.5 0 0 1 0 5h-2"/><path d="M8 3v2M12 3v2"/></svg>';
+
+function pinIcon(selected) {
+  return L.divIcon({ className: "", html: `<div class="pin${selected ? " selected" : ""}">${CUP}</div>`, iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -16] });
+}
+function initMap() {
+  if (!hasMap) {
+    $("map").innerHTML = '<div class="map-fail"><p>地圖無法載入，請確認網路連線。<br>列表仍可正常使用。</p></div>';
+    return;
+  }
+  map = L.map("map", { zoomControl: true }).setView([DEFAULT_POS.lat, DEFAULT_POS.lng], 13);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  markerLayer = L.layerGroup().addTo(map);
+  userMarker = L.marker([state.user.lat, state.user.lng], {
+    icon: L.divIcon({ className: "", html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+    keyboard: false, zIndexOffset: 1000, interactive: false
+  }).addTo(map);
+  map.on("click", e => setUser(e.latlng.lat, e.latlng.lng, "manual"));
+}
+function popupHtml(c) {
+  return `<div class="pop-name">${esc(c.name)}</div>
+    <div class="pop-line">距離 ${fmtDist(c.dist)}${c.mrt ? `，捷運${esc(c.mrt)}站` : ""}</div>
+    ${c.openTime ? `<div class="pop-line">${esc(c.openTime)}</div>` : ""}
+    ${seatHtml(c)}`;
+}
+function drawMarkers() {
+  if (!hasMap) return;
+  markerLayer.clearLayers();
+  markers.clear();
+  state.visible.forEach(c => {
+    const m = L.marker([c.lat, c.lng], { icon: pinIcon(c.id === state.selected), title: c.name, alt: c.name })
+      .bindPopup(popupHtml(c));
+    m.on("click", () => selectCafe(c.id, { fly: false, scroll: true }));
+    m.addTo(markerLayer);
+    markers.set(c.id, m);
+  });
+}
+function fitView() {
+  if (!hasMap) return;
+  const near = state.visible.slice(0, 10).map(c => [c.lat, c.lng]);
+  if (!near.length) { map.setView([state.user.lat, state.user.lng], 14, { animate: !reduceMotion }); return; }
+  map.fitBounds([[state.user.lat, state.user.lng], ...near], { padding: [40, 40], maxZoom: 16, animate: !reduceMotion });
+}
+
+/* =====================================================================
+   5. 列表與篩選
+   ===================================================================== */
+function renderFilters() {
+  $("filters").insertAdjacentHTML("beforeend", FILTERS.map(f =>
+    `<label class="chip"><input type="checkbox" data-key="${f.key}"><span>${f.label}</span></label>`).join(""));
+  $("filters").addEventListener("change", e => {
+    const k = e.target.dataset.key;
+    if (!k) return;
+    e.target.checked ? state.active.add(k) : state.active.delete(k);
+    render({ fit: true });
+  });
+}
+function compute() {
+  const tests = FILTERS.filter(f => state.active.has(f.key));
+  state.visible = CAFES
+    .filter(c => tests.every(f => f.test(c)))
+    .map(c => ({ ...c, dist: haversine(state.user, c) }))
+    .sort((a, b) => a.dist - b.dist);
+  if (state.selected && !state.visible.some(c => c.id === state.selected)) state.selected = null;
+}
+function renderList() {
+  const n = state.visible.length;
+  $("count").innerHTML = `符合 ${n} 間 <span class="total">／共 ${CAFES.length} 間</span>`;
+  $("clear").hidden = state.active.size === 0;
+  if (!n) {
+    $("cards").innerHTML = `<li class="empty"><strong>沒有同時符合所有條件的咖啡廳</strong>試著取消一項條件。<br><button class="btn-link" type="button" data-act="clear">清除所有條件</button></li>`;
+    return;
+  }
+  $("cards").innerHTML = state.visible.map(c => {
+    const tags = FILTERS.filter(f => f.test(c))
+      .map(f => `<span class="tag${state.active.has(f.key) ? " hit" : ""}">${f.label}</span>`).join("");
+    return `<li><div class="card${c.id === state.selected ? " selected" : ""}" data-id="${esc(c.id)}">
+      <button class="card-main" type="button" data-id="${esc(c.id)}">
+        <span class="row1"><span class="name">${esc(c.name)}</span><span class="dist">${fmtDist(c.dist)}</span></span>
+        <span class="meta">${c.mrt ? `捷運${esc(c.mrt)}站` : esc(c.address)}</span>
+        <span class="tags">${tags}</span>
+        ${seatHtml(c)}
+      </button>
+      <a class="nav" href="${navUrl(c)}" target="_blank" rel="noopener">用 Google 地圖導航</a>
+    </div></li>`;
+  }).join("");
+}
+function render({ fit = false } = {}) {
+  compute();
+  renderList();
+  drawMarkers();
+  if (fit) fitView();
+}
+
+function selectCafe(id, { fly = true, scroll = false } = {}) {
+  const prev = state.selected;
+  state.selected = id;
+  if (hasMap) {
+    if (prev && markers.get(prev)) markers.get(prev).setIcon(pinIcon(false));
+    const m = markers.get(id);
+    if (m) {
+      m.setIcon(pinIcon(true));
+      if (fly) {
+        const ll = m.getLatLng();
+        const z = Math.max(map.getZoom(), 16);
+        reduceMotion ? map.setView(ll, z, { animate: false }) : map.flyTo(ll, z, { duration: 0.6 });
+      }
+      m.openPopup();
+    }
+  }
+  document.querySelectorAll(".card").forEach(el => el.classList.toggle("selected", el.dataset.id === id));
+  if (scroll) {
+    const el = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+    if (el) el.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  }
+}
+
+/* =====================================================================
+   6. 定位（優先使用 GPS，失敗時退回預設位置，並可點地圖手動設定）
+   ===================================================================== */
+function setStatus(msg) { $("locStatus").textContent = msg; }
+function setUser(lat, lng, source) {
+  state.user = { lat, lng };
+  if (hasMap) userMarker.setLatLng([lat, lng]);
+  setStatus(source === "gps" ? "已使用你目前的位置。點地圖可改成其他位置。"
+    : source === "manual" ? "已設為你在地圖上點選的位置。"
+    : `目前以${DEFAULT_POS.name}為起點。點地圖可設定你的位置。`);
+  render({ fit: true });
+}
+function useDefault(reason) {
+  setUser(DEFAULT_POS.lat, DEFAULT_POS.lng, "default");
+  if (reason) setStatus(reason);
+}
+function locate() {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    useDefault(`這個頁面無法使用定位（需要 https 網址），目前以${DEFAULT_POS.name}為起點。點地圖可設定位置。`);
+    return;
+  }
+  setStatus("定位中…");
+  navigator.geolocation.getCurrentPosition(pos => {
+    const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    if (haversine(p, DEFAULT_POS) > 30000) {
+      useDefault(`你目前不在台北，已改以${DEFAULT_POS.name}為起點。點地圖可設定位置。`);
+    } else {
+      setUser(p.lat, p.lng, "gps");
+    }
+  }, () => {
+    useDefault(`無法取得定位，目前以${DEFAULT_POS.name}為起點。點地圖可設定位置。`);
+  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
+}
+
+/* =====================================================================
+   7. 啟動
+   ===================================================================== */
+function clearFilters() {
+  state.active.clear();
+  document.querySelectorAll("#filters input").forEach(i => (i.checked = false));
+  render({ fit: true });
+}
+$("cards").addEventListener("click", e => {
+  const clear = e.target.closest('[data-act="clear"]');
+  if (clear) return clearFilters();
+  const btn = e.target.closest(".card-main");
+  if (btn) selectCafe(btn.dataset.id, { fly: true });
+});
+$("clear").addEventListener("click", clearFilters);
+$("relocate").addEventListener("click", locate);
+window.addEventListener("resize", () => { if (hasMap) map.invalidateSize(); });
+
+$("sampleNotice").hidden = !IS_SAMPLE;
+renderFilters();
+initMap();
+render({ fit: true });
+locate();
+</script>
+</body>
+</html>
